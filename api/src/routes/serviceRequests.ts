@@ -3,6 +3,7 @@ import { badRequest, notFound } from '../http/errors.ts';
 import type { MemberRepository } from '../repositories/memberRepository.ts';
 import type { ServiceRequestRepository } from '../repositories/serviceRequestRepository.ts';
 import type { RequestCategory, RequestStatus } from '../repositories/types.ts';
+import { daysOverdue, dueDate } from '../domain/serviceLevels.ts';
 
 const CATEGORIES: readonly RequestCategory[] = ['address-change', 'value-transfer', 'retirement-quote', 'complaint'];
 const STATUSES: readonly RequestStatus[] = ['open', 'in-progress', 'closed'];
@@ -20,6 +21,17 @@ export function registerServiceRequestRoutes(
     }
     const memberId = query.get('memberId') ?? undefined;
     return { body: deps.requests.list({ status: status as RequestStatus | undefined, memberId }) };
+  });
+
+  // Registered BEFORE '/:id' — the router matches routes in registration order.
+  router.get('/api/service-requests/overdue', ({ query }) => {
+    const asOf = query.get('asOf') ?? deps.today();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw badRequest('asOf must be an ISO date (YYYY-MM-DD)');
+    const overdue = deps.requests.list()
+      .map((r) => ({ ...r, dueDate: dueDate(r), daysOverdue: daysOverdue(r, asOf) }))
+      .filter((r) => r.daysOverdue > 0)
+      .sort((a, b) => b.daysOverdue - a.daysOverdue);
+    return { body: overdue };
   });
 
   router.get('/api/service-requests/:id', ({ params }) => {
